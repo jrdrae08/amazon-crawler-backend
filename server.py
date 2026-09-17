@@ -43,6 +43,10 @@ def parse_proxy(raw_proxy: str) -> str:
     
     return raw_proxy
 
+@app.get("/")
+def read_root():
+    return {"status": "online"}
+
 @app.websocket("/ws/crawler")
 async def crawler_endpoint(websocket: WebSocket):
     await websocket.accept()
