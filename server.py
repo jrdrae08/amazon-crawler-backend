@@ -16,6 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {"status": "online"}
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
@@ -42,10 +46,6 @@ def parse_proxy(raw_proxy: str) -> str:
         return f"http://{ip}:{port}"
     
     return raw_proxy
-
-@app.get("/")
-def read_root():
-    return {"status": "online"}
 
 @app.websocket("/ws/crawler")
 async def crawler_endpoint(websocket: WebSocket):
