@@ -54,17 +54,20 @@ async def crawler_endpoint(websocket: WebSocket):
     crawler_task = None
     stop_requested = False
 
-    async def run_crawler_loop(products, raw_proxies):
+    async def run_crawler_loop(products, raw_proxies, max_cycles):
         nonlocal stop_requested
-        cycle_count = 1
 
         # Format proxies to standard HTTP format
         proxies = [parse_proxy(p) for p in raw_proxies if p.strip()]
 
-        while not stop_requested:
+        # Loop for the designated max cycles instead of an infinite while loop
+        for cycle_count in range(1, max_cycles + 1):
+            if stop_requested:
+                break
+
             await websocket.send_json({
                 "type": "log",
-                "message": f"=== Starting Cycle Round #{cycle_count} ===",
+                "message": f"=== Starting Cycle Round #{cycle_count} of {max_cycles} ===",
                 "logType": "header"
             })
 
@@ -102,14 +105,25 @@ async def crawler_endpoint(websocket: WebSocket):
 
                 await asyncio.sleep(random.uniform(2.0, 4.0))
 
-            if not stop_requested:
+            if stop_requested:
+                break
+
+            # If not on the last cycle, pause before the next round
+            if cycle_count < max_cycles:
                 await websocket.send_json({
                     "type": "log",
                     "message": f"=== Completed Round #{cycle_count}. Waiting before next round... ===",
                     "logType": "header"
                 })
-                cycle_count += 1
                 await asyncio.sleep(8)
+
+        # Notify execution completed naturally
+        if not stop_requested:
+            await websocket.send_json({
+                "type": "log",
+                "message": f"SUCCESS: Completed all {max_cycles} cycle(s) successfully!",
+                "logType": "success"
+            })
 
     try:
         while True:
@@ -123,6 +137,7 @@ async def crawler_endpoint(websocket: WebSocket):
 
                 raw_products = message.get("products", [])
                 proxies = message.get("proxies", [])
+                max_cycles = int(message.get("max_cycles", 10)) # Extract max_cycles with fallback default
 
                 products = [
                     {**p, "asin": extract_asin(p["url"])} 
@@ -130,7 +145,7 @@ async def crawler_endpoint(websocket: WebSocket):
                 ]
 
                 if products and proxies:
-                    crawler_task = asyncio.create_task(run_crawler_loop(products, proxies))
+                    crawler_task = asyncio.create_task(run_crawler_loop(products, proxies, max_cycles))
 
             elif message.get("action") == "stop":
                 stop_requested = True
