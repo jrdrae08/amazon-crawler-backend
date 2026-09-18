@@ -60,70 +60,80 @@ async def crawler_endpoint(websocket: WebSocket):
         # Format proxies to standard HTTP format
         proxies = [parse_proxy(p) for p in raw_proxies if p.strip()]
 
-        # Loop for the designated max cycles instead of an infinite while loop
-        for cycle_count in range(1, max_cycles + 1):
-            if stop_requested:
-                break
-
-            await websocket.send_json({
-                "type": "log",
-                "message": f"=== Starting Cycle Round #{cycle_count} of {max_cycles} ===",
-                "logType": "header"
-            })
-
-            for index, product in enumerate(products, start=1):
+        try:
+            # Loop for the designated max cycles
+            for cycle_count in range(1, max_cycles + 1):
                 if stop_requested:
                     break
 
-                current_proxy = random.choice(proxies)
-                proxy_dict = {"http": current_proxy, "https": current_proxy}
-                host_info = current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy
-
-                await websocket.send_json({"type": "proxy_update", "proxy": current_proxy})
                 await websocket.send_json({
                     "type": "log",
-                    "message": f"[{index}/{len(products)}] Requesting: '{product['name']}' ({product['asin']}) via Proxy: {host_info}",
-                    "logType": "info"
-                })
-
-                try:
-                    response = await asyncio.to_thread(
-                        requests.get, product["url"], headers=HEADERS, proxies=proxy_dict, timeout=10
-                    )
-
-                    await websocket.send_json({
-                        "type": "log",
-                        "message": f"    Status: {response.status_code} | Bytes: {len(response.content)}",
-                        "logType": "success" if response.status_code == 200 else "warning"
-                    })
-                except Exception as err:
-                    await websocket.send_json({
-                        "type": "log",
-                        "message": f"    Failed: {str(err)}",
-                        "logType": "error"
-                    })
-
-                await asyncio.sleep(random.uniform(2.0, 4.0))
-
-            if stop_requested:
-                break
-
-            # If not on the last cycle, pause before the next round
-            if cycle_count < max_cycles:
-                await websocket.send_json({
-                    "type": "log",
-                    "message": f"=== Completed Round #{cycle_count}. Waiting before next round... ===",
+                    "message": f"=== Starting Cycle Round #{cycle_count} of {max_cycles} ===",
                     "logType": "header"
                 })
-                await asyncio.sleep(8)
 
-        # Notify execution completed naturally
-        if not stop_requested:
-            await websocket.send_json({
-                "type": "log",
-                "message": f"SUCCESS: Completed all {max_cycles} cycle(s) successfully!",
-                "logType": "success"
-            })
+                for index, product in enumerate(products, start=1):
+                    if stop_requested:
+                        break
+
+                    current_proxy = random.choice(proxies)
+                    proxy_dict = {"http": current_proxy, "https": current_proxy}
+                    host_info = current_proxy.split('@')[-1] if '@' in current_proxy else current_proxy
+
+                    await websocket.send_json({"type": "proxy_update", "proxy": current_proxy})
+                    await websocket.send_json({
+                        "type": "log",
+                        "message": f"[{index}/{len(products)}] Requesting: '{product['name']}' ({product['asin']}) via Proxy: {host_info}",
+                        "logType": "info"
+                    })
+
+                    try:
+                        response = await asyncio.to_thread(
+                            requests.get, product["url"], headers=HEADERS, proxies=proxy_dict, timeout=10
+                        )
+
+                        await websocket.send_json({
+                            "type": "log",
+                            "message": f"    Status: {response.status_code} | Bytes: {len(response.content)}",
+                            "logType": "success" if response.status_code == 200 else "warning"
+                        })
+                    except Exception as err:
+                        await websocket.send_json({
+                            "type": "log",
+                            "message": f"    Failed: {str(err)}",
+                            "logType": "error"
+                        })
+
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+
+                if stop_requested:
+                    break
+
+                # If not on the last cycle, pause before the next round
+                if cycle_count < max_cycles:
+                    await websocket.send_json({
+                        "type": "log",
+                        "message": f"=== Completed Round #{cycle_count}. Waiting before next round... ===",
+                        "logType": "header"
+                    })
+                    await asyncio.sleep(8)
+
+            # Log natural completion message
+            if not stop_requested:
+                await websocket.send_json({
+                    "type": "log",
+                    "message": f"SUCCESS: Completed all {max_cycles} cycle(s) successfully!",
+                    "logType": "success"
+                })
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Notify frontend that execution has ended so UI switches back to "Start" state
+            try:
+                await websocket.send_json({"type": "status", "status": "stopped"})
+            except Exception:
+                pass
 
     try:
         while True:
@@ -137,7 +147,7 @@ async def crawler_endpoint(websocket: WebSocket):
 
                 raw_products = message.get("products", [])
                 proxies = message.get("proxies", [])
-                max_cycles = int(message.get("max_cycles", 10)) # Extract max_cycles with fallback default
+                max_cycles = int(message.get("max_cycles", 10))
 
                 products = [
                     {**p, "asin": extract_asin(p["url"])} 
