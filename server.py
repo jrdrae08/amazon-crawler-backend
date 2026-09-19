@@ -54,17 +54,24 @@ async def crawler_endpoint(websocket: WebSocket):
     crawler_task = None
     stop_requested = False
 
-    async def run_crawler_loop(products, raw_proxies, max_cycles):
+    async def run_crawler_loop(products, raw_proxies, max_cycles, start_cycle=1):
         nonlocal stop_requested
 
         # Format proxies to standard HTTP format
         proxies = [parse_proxy(p) for p in raw_proxies if p.strip()]
 
         try:
-            # Loop for the designated max cycles
-            for cycle_count in range(1, max_cycles + 1):
+            # Loop starting from start_cycle up to max_cycles
+            for cycle_count in range(start_cycle, max_cycles + 1):
                 if stop_requested:
                     break
+
+                # Send explicit cycle_update message to update UI cycle counter state
+                await websocket.send_json({
+                    "type": "cycle_update",
+                    "current_cycle": cycle_count,
+                    "max_cycles": max_cycles
+                })
 
                 await websocket.send_json({
                     "type": "log",
@@ -148,6 +155,9 @@ async def crawler_endpoint(websocket: WebSocket):
                 raw_products = message.get("products", [])
                 proxies = message.get("proxies", [])
                 max_cycles = int(message.get("max_cycles", 10))
+                
+                # Extract start_cycle sent by frontend (defaults to 1 if not provided)
+                start_cycle = int(message.get("start_cycle", 1))
 
                 products = [
                     {**p, "asin": extract_asin(p["url"])} 
@@ -155,7 +165,9 @@ async def crawler_endpoint(websocket: WebSocket):
                 ]
 
                 if products and proxies:
-                    crawler_task = asyncio.create_task(run_crawler_loop(products, proxies, max_cycles))
+                    crawler_task = asyncio.create_task(
+                        run_crawler_loop(products, proxies, max_cycles, start_cycle)
+                    )
 
             elif message.get("action") == "stop":
                 stop_requested = True
